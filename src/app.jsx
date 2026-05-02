@@ -108,16 +108,59 @@ function EditPlantModal({ editData, setEditData, savePlant, deletePlant, loading
           </select>
         </div>
         <div>
-          <div style={lbl}>Boden</div>
-          <select style={inp} value={editData.boden} onChange={e => setEditData({ ...editData, boden: e.target.value })}>
-            {["Normal", "Sandig", "Lehmig", "Humusreich"].map(v => <option key={v}>{v}</option>)}
+          <div style={lbl}>Gießbedarf</div>
+          <select style={inp} value={editData.giess_bedarf || ""} onChange={e => setEditData({ ...editData, giess_bedarf: e.target.value })}>
+            <option value="">–</option>
+            {["Gering", "Mittel", "Hoch"].map(v => <option key={v}>{v}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div>
+          <div style={lbl}>Düngebedarf</div>
+          <select style={inp} value={editData.duenge_bedarf || ""} onChange={e => setEditData({ ...editData, duenge_bedarf: e.target.value })}>
+            <option value="">–</option>
+            {["Gering", "Mittel", "Hoch"].map(v => <option key={v}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lbl}>Schnitt</div>
+          <select style={inp} value={editData.schnitt || ""} onChange={e => setEditData({ ...editData, schnitt: e.target.value })}>
+            <option value="">–</option>
+            {["Keiner", "Frühjahr", "Sommer", "Herbst", "Nach Blüte"].map(v => <option key={v}>{v}</option>)}
           </select>
         </div>
       </div>
       <div style={lbl}>Gepflanzt</div>
       <input style={inp} value={editData.gepflanzt} onChange={e => setEditData({ ...editData, gepflanzt: e.target.value })} placeholder="z.B. Frühjahr 2023" />
+      <div style={lbl}>Foto</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {editData.foto_url && <img src={editData.foto_url} alt="Pflanzenfoto" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.border}` }} />}
+        <label style={{ ...btn(), display: "flex", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" }}>
+          📷 {editData.foto_url ? "Foto ändern" : "Foto hochladen"}
+          <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => setEditData({ ...editData, foto_url: ev.target.result });
+            reader.readAsDataURL(file);
+          }} />
+        </label>
+        {editData.foto_url && <button style={{ ...btn("d"), fontSize: 12, padding: "5px 10px" }} onClick={() => setEditData({ ...editData, foto_url: "" })}>Foto entfernen</button>}
+      </div>
       <div style={lbl}>Notizen</div>
       <textarea style={{ ...inp, height: 80, resize: "vertical" }} value={editData.notizen} onChange={e => setEditData({ ...editData, notizen: e.target.value })} />
+      <div style={lbl}>Foto</div>
+      {editData.foto_url && (
+        <img src={editData.foto_url} alt="Pflanzenfoto" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8, marginBottom: 8, border: `1px solid ${T.border}` }} />
+      )}
+      <label style={{ ...btn(), display: "block", textAlign: "center", cursor: "pointer" }}>
+        📷 {editData.foto_url ? "Foto ändern" : "Foto hochladen"}
+        <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => setEditData({ ...editData, _fotoFile: e.target.files[0], foto_preview: URL.createObjectURL(e.target.files[0]) })} />
+      </label>
+      {editData._fotoFile && (
+        <img src={editData.foto_preview} alt="Vorschau" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8, marginTop: 8, border: `1px solid ${T.accent}` }} />
+      )}
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <button style={btn("p")} onClick={savePlant} disabled={loading}>{loading ? "…" : "Speichern"}</button>
         <button style={btn()} onClick={() => setEditData(null)}>Abbrechen</button>
@@ -239,22 +282,46 @@ export default function App() {
     if (token) { loadPlants(); loadLog(); loadKalender(); }
   }, [token, loadPlants, loadLog, loadKalender]);
 
+  // ─── QR Deep-Link: ?pflanze=X ───
+  useEffect(() => {
+    if (!token || plants.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const nummer = params.get("pflanze");
+    if (!nummer) return;
+    const plant = plants.find(p => String(p.nummer) === String(nummer));
+    if (plant) {
+      setSelectedId(plant.id);
+      setView("db");
+      // Clean URL ohne Parameter
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [token, plants]);
+
   // ─── Plant CRUD ───
   const savePlant = async () => {
     setLoading(true);
     try {
-      if (editData.id) {
-        const { id, user_id, created_at, ...rest } = editData;
+      // Foto hochladen falls vorhanden
+      let foto_url = editData.foto_url || null;
+      if (editData._fotoFile) {
+        const ext = editData._fotoFile.name.split(".").pop();
+        const path = `${session.user.id}/${Date.now()}.${ext}`;
+        foto_url = await sb.storage.upload(token, "pflanzfotos", path, editData._fotoFile);
+      }
+      // _fotoFile und foto_preview nicht in DB speichern
+      const { _fotoFile, foto_preview, ...data } = { ...editData, foto_url };
+
+      if (data.id) {
+        const { id, user_id, created_at, ...rest } = data;
         await sb.from("pflanzen", token).update(rest, `id=eq.${id}`);
         await loadPlants();
-        setView("db"); setEditData(null); notify("✅ Pflanze gespeichert");
+        setEditData(null); notify("✅ Pflanze gespeichert");
       } else {
-        const { id, ...rest } = editData;
+        const { id, ...rest } = data;
         const result = await sb.from("pflanzen", token).insert({ ...rest, user_id: session.user.id });
         await loadPlants();
-        // Navigate to new plant detail so QR is immediately visible
         const newPlant = Array.isArray(result) ? result[0] : null;
-        if (newPlant) { setSelectedId(newPlant.id); setView("plant"); }
+        if (newPlant) { setSelectedId(newPlant.id); setView("db"); }
         else setView("db");
         setEditData(null); notify("✅ Pflanze angelegt – QR-Code unten verfügbar");
       }
@@ -311,7 +378,8 @@ export default function App() {
   };
 
   // ─── QR Code ───
-  const qrUrl = (p) => `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(window.location.href + "?pflanze=" + p.nummer)}`;
+  const qrBaseUrl = () => window.location.origin + window.location.pathname;
+  const qrUrl = (p) => `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(qrBaseUrl() + "?pflanze=" + p.nummer)}`;
 
   const downloadQR = async (p) => {
     const url = qrUrl(p);
@@ -377,9 +445,18 @@ export default function App() {
             <div><div style={lbl}>Standort</div><div style={{ fontSize: 14 }}>{p.standort || "–"}</div></div>
             <div><div style={lbl}>Gepflanzt</div><div style={{ fontSize: 14 }}>{p.gepflanzt || "–"}</div></div>
             <div><div style={lbl}>Licht</div><div style={{ fontSize: 14 }}>{p.licht}</div></div>
-            <div><div style={lbl}>Boden</div><div style={{ fontSize: 14 }}>{p.boden}</div></div>
+            <div><div style={lbl}>Gießbedarf</div><div style={{ fontSize: 14 }}>{p.giess_bedarf || "–"}</div></div>
+            <div><div style={lbl}>Düngebedarf</div><div style={{ fontSize: 14 }}>{p.duenge_bedarf || "–"}</div></div>
+            <div><div style={lbl}>Schnitt</div><div style={{ fontSize: 14 }}>{p.schnitt || "–"}</div></div>
           </div>
+          {p.foto_url && <><div style={lbl}>Foto</div><img src={p.foto_url} alt="Pflanzenfoto" style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} /></>}
           {p.notizen && <><div style={lbl}>Notizen</div><div style={{ fontSize: 13, background: T.warmL, padding: "10px 12px", borderRadius: 8, lineHeight: 1.5 }}>{p.notizen}</div></>}
+          {p.foto_url && (
+            <>
+              <div style={lbl}>Foto</div>
+              <img src={p.foto_url} alt={p.name} style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} />
+            </>
+          )}
 
           {/* Pflegekalender */}
           <div style={lbl}>Pflegekalender</div>
@@ -679,7 +756,7 @@ export default function App() {
       })}
       <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
         <button style={btn("p")} onClick={() => {
-          setEditData({ id: null, name: "", art_botanisch: "", kategorie: "zierpflanzen", standort: "", licht: "Sonne", boden: "Normal", foto_emoji: "🌱", nummer: (plants.length ? Math.max(...plants.map(p => p.nummer)) : 0) + 1, pos_x: 50, pos_y: 50, gepflanzt: "", notizen: "" });
+          setEditData({ id: null, name: "", art_botanisch: "", kategorie: "zierpflanzen", standort: "", licht: "Sonne", giess_bedarf: "", duenge_bedarf: "", schnitt: "", foto_emoji: "🌱", foto_url: "", nummer: (plants.length ? Math.max(...plants.map(p => p.nummer)) : 0) + 1, pos_x: 50, pos_y: 50, gepflanzt: "", notizen: "" });
         }}>+ Neue Pflanze</button>
       </div>
     </div>
