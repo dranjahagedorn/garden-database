@@ -75,6 +75,125 @@ const lbl = { fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "upp
 const tag = (color, bg) => ({ display: "inline-block", padding: "2px 8px", borderRadius: 20, fontSize: 12, fontWeight: 600, color, background: bg, border: `1px solid ${color}30` });
 const curMonth = () => new Date().getMonth() + 1;
 
+// ─── External Modal Components (outside App to prevent remount on re-render) ───
+function EditPlantModal({ editData, setEditData, savePlant, deletePlant, loading }) {
+  if (!editData) return null;
+  return (
+    <Modal title={editData.id ? "Pflanze bearbeiten" : "Neue Pflanze"} onClose={() => setEditData(null)}>
+      <div style={lbl}>Name *</div>
+      <input style={inp} value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} placeholder="z.B. Tomate" />
+      <div style={lbl}>Botanischer Name</div>
+      <input style={inp} value={editData.art_botanisch} onChange={e => setEditData({ ...editData, art_botanisch: e.target.value })} placeholder="z.B. Solanum lycopersicum" />
+      <div style={lbl}>Kategorie *</div>
+      <select style={inp} value={editData.kategorie} onChange={e => setEditData({ ...editData, kategorie: e.target.value })}>
+        {KAT.map(k => <option key={k.id} value={k.id}>{k.emoji} {k.label}</option>)}
+      </select>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div>
+          <div style={lbl}>Nummer</div>
+          <input style={inp} type="number" value={editData.nummer} onChange={e => setEditData({ ...editData, nummer: +e.target.value })} />
+        </div>
+        <div>
+          <div style={lbl}>Emoji / Symbol</div>
+          <input style={inp} value={editData.foto_emoji} onChange={e => setEditData({ ...editData, foto_emoji: e.target.value })} />
+        </div>
+      </div>
+      <div style={lbl}>Standort (Bereich im Garten)</div>
+      <input style={inp} value={editData.standort} onChange={e => setEditData({ ...editData, standort: e.target.value })} placeholder="z.B. Beet Süd, Terrasse, Gewächshaus" />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div>
+          <div style={lbl}>Licht</div>
+          <select style={inp} value={editData.licht} onChange={e => setEditData({ ...editData, licht: e.target.value })}>
+            {["Sonne", "Halbschatten", "Schatten"].map(v => <option key={v}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={lbl}>Boden</div>
+          <select style={inp} value={editData.boden} onChange={e => setEditData({ ...editData, boden: e.target.value })}>
+            {["Normal", "Sandig", "Lehmig", "Humusreich"].map(v => <option key={v}>{v}</option>)}
+          </select>
+        </div>
+      </div>
+      <div style={lbl}>Gepflanzt</div>
+      <input style={inp} value={editData.gepflanzt} onChange={e => setEditData({ ...editData, gepflanzt: e.target.value })} placeholder="z.B. Frühjahr 2023" />
+      <div style={lbl}>Notizen</div>
+      <textarea style={{ ...inp, height: 80, resize: "vertical" }} value={editData.notizen} onChange={e => setEditData({ ...editData, notizen: e.target.value })} />
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button style={btn("p")} onClick={savePlant} disabled={loading}>{loading ? "…" : "Speichern"}</button>
+        <button style={btn()} onClick={() => setEditData(null)}>Abbrechen</button>
+        {editData.id && <button style={{ ...btn("d"), marginLeft: "auto" }} onClick={() => deletePlant(editData.id)}>Löschen</button>}
+      </div>
+    </Modal>
+  );
+}
+
+function EditLogModal({ editLog, setEditLog, saveLog, deleteLog, loading, plants }) {
+  if (!editLog) return null;
+  return (
+    <Modal title={editLog.id ? "Eintrag bearbeiten" : "Neuer Eintrag"} onClose={() => setEditLog(null)}>
+      <div style={lbl}>Typ</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        {["pflege", "krankheit"].map(t => (
+          <button key={t} style={{ ...btn(editLog.typ === t ? "p" : ""), flex: 1 }} onClick={() => setEditLog({ ...editLog, typ: t })}>
+            {t === "pflege" ? "🌿 Pflege" : "🐛 Krankheit"}
+          </button>
+        ))}
+      </div>
+      <div style={lbl}>Pflanze</div>
+      <select style={inp} value={editLog.pflanze_id} onChange={e => setEditLog({ ...editLog, pflanze_id: e.target.value })}>
+        <option value="">– Pflanze wählen –</option>
+        {plants.map(p => <option key={p.id} value={p.id}>#{p.nummer} {p.name}</option>)}
+      </select>
+      <div style={lbl}>Datum</div>
+      <input style={inp} type="date" value={editLog.datum} onChange={e => setEditLog({ ...editLog, datum: e.target.value })} />
+      <div style={lbl}>Titel</div>
+      <input style={inp} value={editLog.titel} onChange={e => setEditLog({ ...editLog, titel: e.target.value })} placeholder="Was wurde gemacht?" />
+      <div style={lbl}>Beschreibung</div>
+      <textarea style={{ ...inp, height: 70, resize: "vertical" }} value={editLog.beschreibung} onChange={e => setEditLog({ ...editLog, beschreibung: e.target.value })} />
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button style={btn("p")} onClick={saveLog} disabled={loading}>{loading ? "…" : "Speichern"}</button>
+        <button style={btn()} onClick={() => setEditLog(null)}>Abbrechen</button>
+        {editLog.id && <button style={{ ...btn("d"), marginLeft: "auto" }} onClick={async () => { await deleteLog(editLog.id); setEditLog(null); }}>Löschen</button>}
+      </div>
+    </Modal>
+  );
+}
+
+function EditKalModal({ editKal, setEditKal, saveKal, deleteKal, loading, plants }) {
+  if (!editKal) return null;
+  return (
+    <Modal title={editKal.id ? "Aufgabe bearbeiten" : "Neue Kalenderaufgabe"} onClose={() => setEditKal(null)}>
+      <div style={lbl}>Pflanze</div>
+      <select style={inp} value={editKal.pflanze_id} onChange={e => setEditKal({ ...editKal, pflanze_id: e.target.value })}>
+        <option value="">– Pflanze wählen –</option>
+        {plants.map(p => <option key={p.id} value={p.id}>#{p.nummer} {p.name}</option>)}
+      </select>
+      <div style={lbl}>Monat</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+        {MONATE.map((m, i) => (
+          <button key={i} style={{ ...btn(editKal.monat === i + 1 ? "p" : ""), padding: "5px 10px", fontSize: 12 }}
+            onClick={() => setEditKal({ ...editKal, monat: i + 1 })}>{m}</button>
+        ))}
+      </div>
+      <div style={lbl}>Aufgabe</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
+        {AUFGABEN_TYPEN.map(a => (
+          <button key={a} style={{ ...btn(editKal.aufgabe === a ? "w" : ""), padding: "5px 10px", fontSize: 12 }}
+            onClick={() => setEditKal({ ...editKal, aufgabe: a })}>{a}</button>
+        ))}
+      </div>
+      <input style={inp} value={editKal.aufgabe} onChange={e => setEditKal({ ...editKal, aufgabe: e.target.value })} placeholder="Oder eigene Aufgabe eingeben…" />
+      <div style={lbl}>Hinweis (optional)</div>
+      <input style={inp} value={editKal.hinweis || ""} onChange={e => setEditKal({ ...editKal, hinweis: e.target.value })} placeholder="z.B. 2x pro Woche, Kaliummangel beachten" />
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button style={btn("p")} onClick={saveKal} disabled={!editKal.pflanze_id || !editKal.aufgabe || loading}>{loading ? "…" : "Speichern"}</button>
+        <button style={btn()} onClick={() => setEditKal(null)}>Abbrechen</button>
+        {editKal.id && <button style={{ ...btn("d"), marginLeft: "auto" }} onClick={async () => { await deleteKal(editKal.id); setEditKal(null); }}>Löschen</button>}
+      </div>
+    </Modal>
+  );
+}
+
 // ════════════════════════════════════════════════════════════
 export default function App() {
   const [session, setSession] = useState(null);
@@ -127,12 +246,18 @@ export default function App() {
       if (editData.id) {
         const { id, user_id, created_at, ...rest } = editData;
         await sb.from("pflanzen", token).update(rest, `id=eq.${id}`);
+        await loadPlants();
+        setView("db"); setEditData(null); notify("✅ Pflanze gespeichert");
       } else {
         const { id, ...rest } = editData;
-        await sb.from("pflanzen", token).insert({ ...rest, user_id: session.user.id });
+        const result = await sb.from("pflanzen", token).insert({ ...rest, user_id: session.user.id });
+        await loadPlants();
+        // Navigate to new plant detail so QR is immediately visible
+        const newPlant = Array.isArray(result) ? result[0] : null;
+        if (newPlant) { setSelectedId(newPlant.id); setView("plant"); }
+        else setView("db");
+        setEditData(null); notify("✅ Pflanze angelegt – QR-Code unten verfügbar");
       }
-      await loadPlants();
-      setView("db"); setEditData(null); notify("✅ Pflanze gespeichert");
     } catch (e) { notify("❌ " + e.message); }
     setLoading(false);
   };
@@ -186,7 +311,33 @@ export default function App() {
   };
 
   // ─── QR Code ───
-  const qrUrl = (p) => `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(window.location.href + "?pflanze=" + p.nummer)}`;
+  const qrUrl = (p) => `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(window.location.href + "?pflanze=" + p.nummer)}`;
+
+  const downloadQR = async (p) => {
+    const url = qrUrl(p);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const pad = 20;
+      const fontSize = 16;
+      canvas.width = img.width + pad * 2;
+      canvas.height = img.height + pad * 2 + fontSize + 8;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, pad, pad);
+      ctx.fillStyle = "#2d2416";
+      ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+      ctx.textAlign = "center";
+      ctx.fillText(`#${p.nummer} ${p.name}`, canvas.width / 2, img.height + pad + fontSize + 4);
+      const a = document.createElement("a");
+      a.download = `QR_${p.nummer}_${p.name.replace(/\s+/g, "_")}.png`;
+      a.href = canvas.toDataURL("image/png");
+      a.click();
+    };
+    img.src = url;
+  };
 
   // ─── Login Screen ───
   if (!session) return <LoginScreen onLogin={setSession} />;
@@ -197,115 +348,7 @@ export default function App() {
     (!search || p.name.toLowerCase().includes(search.toLowerCase()) || String(p.nummer).includes(search))
   );
 
-  // ─── Modals ───
-  const EditPlantModal = () => editData && (
-    <Modal title={editData.id ? "Pflanze bearbeiten" : "Neue Pflanze"} onClose={() => setEditData(null)}>
-      <div style={lbl}>Name *</div>
-      <input style={inp} value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} placeholder="z.B. Tomate" />
-      <div style={lbl}>Botanischer Name</div>
-      <input style={inp} value={editData.art_botanisch} onChange={e => setEditData({ ...editData, art_botanisch: e.target.value })} placeholder="z.B. Solanum lycopersicum" />
-      <div style={lbl}>Kategorie *</div>
-      <select style={inp} value={editData.kategorie} onChange={e => setEditData({ ...editData, kategorie: e.target.value })}>
-        {KAT.map(k => <option key={k.id} value={k.id}>{k.emoji} {k.label}</option>)}
-      </select>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div>
-          <div style={lbl}>Nummer</div>
-          <input style={inp} type="number" value={editData.nummer} onChange={e => setEditData({ ...editData, nummer: +e.target.value })} />
-        </div>
-        <div>
-          <div style={lbl}>Emoji / Symbol</div>
-          <input style={inp} value={editData.foto_emoji} onChange={e => setEditData({ ...editData, foto_emoji: e.target.value })} />
-        </div>
-      </div>
-      <div style={lbl}>Standort (Bereich im Garten)</div>
-      <input style={inp} value={editData.standort} onChange={e => setEditData({ ...editData, standort: e.target.value })} placeholder="z.B. Beet Süd, Terrasse, Gewächshaus" />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div>
-          <div style={lbl}>Licht</div>
-          <select style={inp} value={editData.licht} onChange={e => setEditData({ ...editData, licht: e.target.value })}>
-            {["Sonne", "Halbschatten", "Schatten"].map(v => <option key={v}>{v}</option>)}
-          </select>
-        </div>
-        <div>
-          <div style={lbl}>Boden</div>
-          <select style={inp} value={editData.boden} onChange={e => setEditData({ ...editData, boden: e.target.value })}>
-            {["Normal", "Sandig", "Lehmig", "Humusreich"].map(v => <option key={v}>{v}</option>)}
-          </select>
-        </div>
-      </div>
-      <div style={lbl}>Gepflanzt</div>
-      <input style={inp} value={editData.gepflanzt} onChange={e => setEditData({ ...editData, gepflanzt: e.target.value })} placeholder="z.B. Frühjahr 2023" />
-      <div style={lbl}>Notizen</div>
-      <textarea style={{ ...inp, height: 80, resize: "vertical" }} value={editData.notizen} onChange={e => setEditData({ ...editData, notizen: e.target.value })} />
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button style={btn("p")} onClick={savePlant} disabled={loading}>{loading ? "…" : "Speichern"}</button>
-        <button style={btn()} onClick={() => setEditData(null)}>Abbrechen</button>
-        {editData.id && <button style={{ ...btn("d"), marginLeft: "auto" }} onClick={() => deletePlant(editData.id)}>Löschen</button>}
-      </div>
-    </Modal>
-  );
-
-  const EditLogModal = () => editLog && (
-    <Modal title={editLog.id ? "Eintrag bearbeiten" : "Neuer Eintrag"} onClose={() => setEditLog(null)}>
-      <div style={lbl}>Typ</div>
-      <div style={{ display: "flex", gap: 8 }}>
-        {["pflege", "krankheit"].map(t => (
-          <button key={t} style={{ ...btn(editLog.typ === t ? "p" : ""), flex: 1 }} onClick={() => setEditLog({ ...editLog, typ: t })}>
-            {t === "pflege" ? "🌿 Pflege" : "🐛 Krankheit"}
-          </button>
-        ))}
-      </div>
-      <div style={lbl}>Pflanze</div>
-      <select style={inp} value={editLog.pflanze_id} onChange={e => setEditLog({ ...editLog, pflanze_id: e.target.value })}>
-        <option value="">– Pflanze wählen –</option>
-        {plants.map(p => <option key={p.id} value={p.id}>#{p.nummer} {p.name}</option>)}
-      </select>
-      <div style={lbl}>Datum</div>
-      <input style={inp} type="date" value={editLog.datum} onChange={e => setEditLog({ ...editLog, datum: e.target.value })} />
-      <div style={lbl}>Titel</div>
-      <input style={inp} value={editLog.titel} onChange={e => setEditLog({ ...editLog, titel: e.target.value })} placeholder="Was wurde gemacht?" />
-      <div style={lbl}>Beschreibung</div>
-      <textarea style={{ ...inp, height: 70, resize: "vertical" }} value={editLog.beschreibung} onChange={e => setEditLog({ ...editLog, beschreibung: e.target.value })} />
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button style={btn("p")} onClick={saveLog} disabled={loading}>{loading ? "…" : "Speichern"}</button>
-        <button style={btn()} onClick={() => setEditLog(null)}>Abbrechen</button>
-        {editLog.id && <button style={{ ...btn("d"), marginLeft: "auto" }} onClick={async () => { await deleteLog(editLog.id); setEditLog(null); }}>Löschen</button>}
-      </div>
-    </Modal>
-  );
-
-  const EditKalModal = () => editKal && (
-    <Modal title={editKal.id ? "Aufgabe bearbeiten" : "Neue Kalenderaufgabe"} onClose={() => setEditKal(null)}>
-      <div style={lbl}>Pflanze</div>
-      <select style={inp} value={editKal.pflanze_id} onChange={e => setEditKal({ ...editKal, pflanze_id: e.target.value })}>
-        <option value="">– Pflanze wählen –</option>
-        {plants.map(p => <option key={p.id} value={p.id}>#{p.nummer} {p.name}</option>)}
-      </select>
-      <div style={lbl}>Monat</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-        {MONATE.map((m, i) => (
-          <button key={i} style={{ ...btn(editKal.monat === i + 1 ? "p" : ""), padding: "5px 10px", fontSize: 12 }}
-            onClick={() => setEditKal({ ...editKal, monat: i + 1 })}>{m}</button>
-        ))}
-      </div>
-      <div style={lbl}>Aufgabe</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 6 }}>
-        {AUFGABEN_TYPEN.map(a => (
-          <button key={a} style={{ ...btn(editKal.aufgabe === a ? "w" : ""), padding: "5px 10px", fontSize: 12 }}
-            onClick={() => setEditKal({ ...editKal, aufgabe: a })}>{a}</button>
-        ))}
-      </div>
-      <input style={inp} value={editKal.aufgabe} onChange={e => setEditKal({ ...editKal, aufgabe: e.target.value })} placeholder="Oder eigene Aufgabe eingeben…" />
-      <div style={lbl}>Hinweis (optional)</div>
-      <input style={inp} value={editKal.hinweis || ""} onChange={e => setEditKal({ ...editKal, hinweis: e.target.value })} placeholder="z.B. 2x pro Woche, Kaliummangel beachten" />
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button style={btn("p")} onClick={saveKal} disabled={!editKal.pflanze_id || !editKal.aufgabe || loading}>{loading ? "…" : "Speichern"}</button>
-        <button style={btn()} onClick={() => setEditKal(null)}>Abbrechen</button>
-        {editKal.id && <button style={{ ...btn("d"), marginLeft: "auto" }} onClick={async () => { await deleteKal(editKal.id); setEditKal(null); }}>Löschen</button>}
-      </div>
-    </Modal>
-  );
+  // ─── Modals (defined externally to prevent focus loss on re-render) ───
 
   // ─── Plant Detail ───
   const PlantView = () => {
@@ -364,8 +407,20 @@ export default function App() {
 
           {/* QR Code */}
           <div style={lbl}>QR-Code</div>
-          <img src={qrUrl(p)} alt="QR" style={{ width: 120, height: 120, borderRadius: 8 }} />
-          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Zum Pflanzenschild drucken → direkter Link zu Pflanze #{p.nummer}</div>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginTop: 4 }}>
+            <img src={qrUrl(p)} alt="QR" style={{ width: 120, height: 120, borderRadius: 8, border: `1px solid ${T.border}` }} />
+            <div>
+              <div style={{ fontSize: 12, color: T.muted, marginBottom: 8, lineHeight: 1.5 }}>
+                Zum Pflanzenschild drucken →<br />direkter Link zu Pflanze <strong>#{p.nummer}</strong>
+              </div>
+              <button style={btn("w")} onClick={() => downloadQR(p)}>
+                ⬇️ PNG herunterladen
+              </button>
+              <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
+                Dateiname: QR_{p.nummer}_{p.name.replace(/\s+/g, "_")}.png
+              </div>
+            </div>
+          </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
             <button style={btn("p")} onClick={() => { setEditData({ ...p }); }}>✏️ Bearbeiten</button>
@@ -700,9 +755,9 @@ export default function App() {
       </div>
 
       {/* Modals */}
-      {editData && <EditPlantModal />}
-      {editLog && <EditLogModal />}
-      {editKal && <EditKalModal />}
+      <EditPlantModal editData={editData} setEditData={setEditData} savePlant={savePlant} deletePlant={deletePlant} loading={loading} />
+      <EditLogModal editLog={editLog} setEditLog={setEditLog} saveLog={saveLog} deleteLog={deleteLog} loading={loading} plants={plants} />
+      <EditKalModal editKal={editKal} setEditKal={setEditKal} saveKal={saveKal} deleteKal={deleteKal} loading={loading} plants={plants} />
     </div>
   );
 }
