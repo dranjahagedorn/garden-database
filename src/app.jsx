@@ -76,7 +76,7 @@ const tag = (color, bg) => ({ display: "inline-block", padding: "2px 8px", borde
 const curMonth = () => new Date().getMonth() + 1;
 
 // ════════════════════════════════════════════════════════════
-export default function GartenApp() {
+export default function App() {
   const [session, setSession] = useState(null);
   const [view, setView] = useState("db"); // db | plant | editPlant | logbook | map | calendar
   const [plants, setPlants] = useState([]);
