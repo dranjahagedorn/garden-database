@@ -4,8 +4,8 @@
 //           QR-Codes, Pflegekalender (Monatsansicht)
 // ════════════════════════════════════════════════════════════
 // ⚠️  HIER DEINE SUPABASE-DATEN EINTRAGEN:
-const SUPABASE_URL = "https://DEIN-PROJEKT.supabase.co";
-const SUPABASE_ANON_KEY = "DEIN-ANON-KEY";
+const SUPABASE_URL = "https://rzdyughiamhbbdqfqzil.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6ZHl1Z2hpYW1oYmJkcWZxemlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MTU1MzksImV4cCI6MjA5MzI5MTUzOX0.9MG3bbo2w4krlp5BaCwEdJCr_naCffBVrWVLIlMPPX0";
 // ════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback } from "react";
