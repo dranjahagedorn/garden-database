@@ -251,9 +251,10 @@ function WeatherView() {
     setLoading(true); setError("");
     try {
       // Aktuell
-      const res = await fetch(
-        `https://api.weather.com/v2/pws/observations/current?stationId=${WU_STATION}&format=json&units=m&apiKey=${WU_API_KEY}&numericPrecision=decimal`
-      );
+      const proxyUrl = `${SUPABASE_URL}/functions/v1/wu-proxy`;
+      const proxyHeaders = { "Content-Type": "application/json", "Authorization": `Bearer ${SUPABASE_ANON_KEY}` };
+
+      const res = await fetch(proxyUrl, { method: "POST", headers: proxyHeaders, body: JSON.stringify({ stationId: WU_STATION }) });
       if (!res.ok) throw new Error("Abruf fehlgeschlagen");
       const data = await res.json();
       setWx(data.observations[0]);
@@ -265,9 +266,7 @@ function WeatherView() {
         d.setDate(d.getDate() - i);
         const dateStr = d.toISOString().slice(0, 10).replace(/-/g, "");
         try {
-          const r = await fetch(
-            `https://api.weather.com/v2/pws/history/daily?stationId=${WU_STATION}&format=json&units=m&apiKey=${WU_API_KEY}&date=${dateStr}`
-          );
+          const r = await fetch(proxyUrl, { method: "POST", headers: proxyHeaders, body: JSON.stringify({ stationId: WU_STATION, date: dateStr }) });
           const hd = await r.json();
           if (hd.observations?.[0]) {
             hist.push({ date: d, precip: hd.observations[0].metric.precipTotal || 0, tempHigh: hd.observations[0].metric.tempHigh, tempAvg: hd.observations[0].metric.tempAvg });
