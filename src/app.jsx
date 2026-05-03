@@ -8,7 +8,7 @@ const SUPABASE_URL = "https://rzdyughiamhbbdqfqzil.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6ZHl1Z2hpYW1oYmJkcWZxemlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MTU1MzksImV4cCI6MjA5MzI5MTUzOX0.9MG3bbo2w4krlp5BaCwEdJCr_naCffBVrWVLIlMPPX0";
 // ════════════════════════════════════════════════════════════
 
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 // ─── Supabase Client (inline, kein npm nötig) ───
 const sb = (() => {
@@ -656,59 +656,197 @@ export default function App() {
     );
   };
 
-  // ─── Garden Map ───
+  // ─── Garden Map (Leaflet + DOP20 ImageOverlay) ───
   const MapView = () => {
-    const [dragging, setDragging] = useState(null);
-    const [positions, setPositions] = useState({});
+    const mapRef = useRef(null);
+    const leafletMap = useRef(null);
+    const markersRef = useRef({});
+    const [mapReady, setMapReady] = useState(false);
+    const [imageUrl, setImageUrl] = useState(() => localStorage.getItem("garten_img_url") || "");
+    const [inputUrl, setInputUrl] = useState(() => localStorage.getItem("garten_img_url") || "");
+    const [showUrlInput, setShowUrlInput] = useState(false);
+    const [selectedPlant, setSelectedPlant] = useState(null);
 
-    const getPos = (p) => positions[p.id] || { x: p.pos_x, y: p.pos_y };
+    // Leaflet laden (CDN)
+    useEffect(() => {
+      if (window.L) { setMapReady(true); return; }
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+      const script = document.createElement("script");
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.onload = () => setMapReady(true);
+      document.head.appendChild(script);
+    }, []);
 
-    const handleDrop = async (e, p) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      const x = Math.max(2, Math.min(98, ((e.clientX - rect.left) / rect.width) * 100));
-      const y = Math.max(2, Math.min(98, ((e.clientY - rect.top) / rect.height) * 100));
-      setPositions(prev => ({ ...prev, [p.id]: { x, y } }));
-      await sb.from("pflanzen", token).update({ pos_x: x, pos_y: y }, `id=eq.${p.id}`);
+    // Karte initialisieren
+    useEffect(() => {
+      if (!mapReady || !mapRef.current || leafletMap.current) return;
+      const L = window.L;
+
+      // Gartenkoordinaten (aus DOP20 garten.tif)
+      const GARTEN_BOUNDS = [[51.65162718, 12.41740532], [51.65371972, 12.42016157]];
+      const CENTER = [51.65267345, 12.41878344];
+
+      const map = L.map(mapRef.current, {
+        center: CENTER,
+        zoom: 18,
+        maxZoom: 21,
+        minZoom: 15,
+      });
+
+      // OSM als Fallback-Hintergrund
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+        maxZoom: 19,
+        opacity: 0.5,
+      }).addTo(map);
+
+      // DOP20 ImageOverlay wenn URL vorhanden
+      if (imageUrl) {
+        L.imageOverlay(imageUrl, GARTEN_BOUNDS, { opacity: 0.95, interactive: false }).addTo(map);
+        map.fitBounds(GARTEN_BOUNDS);
+      }
+
+      leafletMap.current = map;
+    }, [mapReady, imageUrl]);
+
+    // Marker aktualisieren wenn Pflanzen geladen
+    useEffect(() => {
+      if (!leafletMap.current || !mapReady) return;
+      const L = window.L;
+      const map = leafletMap.current;
+
+      // Alte Marker entfernen
+      Object.values(markersRef.current).forEach(m => m.remove());
+      markersRef.current = {};
+
+      // Neue Marker setzen (nur Pflanzen mit GPS-Koordinaten)
+      plants.forEach(p => {
+        if (!p.pos_lat || !p.pos_lng) return;
+        const kat = KAT.find(k => k.id === p.kategorie);
+        const color = kat?.color || "#5a7a3a";
+        const icon = L.divIcon({
+          className: "",
+          html: `<div style="width:34px;height:34px;border-radius:50%;background:${color};border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,0.3);cursor:pointer">${p.foto_emoji}</div>`,
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+        });
+        const marker = L.marker([p.pos_lat, p.pos_lng], { icon, draggable: true });
+        marker.on("click", () => setSelectedPlant(p));
+        marker.on("dragend", async (e) => {
+          const { lat, lng } = e.target.getLatLng();
+          await sb.from("pflanzen", token).update({ pos_lat: lat, pos_lng: lng }, `id=eq.${p.id}`);
+          notify("📍 Position gespeichert");
+        });
+        marker.addTo(map);
+        markersRef.current[p.id] = marker;
+      });
+
+      // Klick auf Karte → nächste Pflanze ohne Position setzen
+      map.off("click");
+      map.on("click", (e) => {
+        const ohnePos = plants.find(p => !p.pos_lat && !p.pos_lng);
+        if (ohnePos) {
+          setSelectedPlant({ ...ohnePos, _setPos: e.latlng });
+        }
+      });
+    }, [plants, mapReady]);
+
+    // Position setzen wenn _setPos vorhanden
+    useEffect(() => {
+      if (!selectedPlant?._setPos) return;
+      const { lat, lng } = selectedPlant._setPos;
+      (async () => {
+        await sb.from("pflanzen", token).update({ pos_lat: lat, pos_lng: lng }, `id=eq.${selectedPlant.id}`);
+        await loadPlants();
+        notify(`📍 ${selectedPlant.name} positioniert`);
+        setSelectedPlant(null);
+      })();
+    }, [selectedPlant]);
+
+    const saveImageUrl = () => {
+      localStorage.setItem("garten_img_url", inputUrl);
+      setImageUrl(inputUrl);
+      setShowUrlInput(false);
+      leafletMap.current = null; // Karte neu aufbauen mit neuem Bild
     };
+
+    const ohnePos = plants.filter(p => !p.pos_lat && !p.pos_lng);
+    const mitPos = plants.filter(p => p.pos_lat && p.pos_lng);
 
     return (
       <div>
-        <h2 style={{ margin: "0 0 12px", fontSize: 18 }}>🗺️ Gartenplan</h2>
-        <div style={{ fontSize: 13, color: T.muted, marginBottom: 10 }}>Pflanzen per Drag & Drop positionieren – Positionen werden automatisch gespeichert.</div>
-        <div style={{ position: "relative", width: "100%", paddingBottom: "75%", background: "linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 50%, #a5d6a7 100%)", borderRadius: 14, border: `2px solid ${T.border}`, overflow: "hidden" }}>
-          <div style={{ position: "absolute", inset: 0 }}>
-            {/* Grid */}
-            {[25, 50, 75].map(p => (
-              <div key={p} style={{ position: "absolute", left: `${p}%`, top: 0, bottom: 0, borderLeft: "1px dashed rgba(255,255,255,0.4)" }} />
-            ))}
-            {[25, 50, 75].map(p => (
-              <div key={p} style={{ position: "absolute", top: `${p}%`, left: 0, right: 0, borderTop: "1px dashed rgba(255,255,255,0.4)" }} />
-            ))}
-            {/* Plants */}
-            {plants.map(p => {
-              const { x, y } = getPos(p);
-              const kat = KAT.find(k => k.id === p.kategorie);
-              return (
-                <div key={p.id}
-                  draggable
-                  onDragEnd={(e) => handleDrop(e, p)}
-                  onClick={() => { setSelectedId(p.id); setView("plant"); }}
-                  style={{ position: "absolute", left: `${x}%`, top: `${y}%`, transform: "translate(-50%,-50%)", cursor: "grab", zIndex: 2 }}
-                  title={p.name}
-                >
-                  <div style={{ textAlign: "center" }}>
-                    <div style={{ width: 36, height: 36, borderRadius: "50%", background: kat?.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", border: "2px solid white" }}>
-                      {p.foto_emoji}
-                    </div>
-                    <div style={{ fontSize: 9, fontWeight: 700, color: "#1a1a1a", background: "rgba(255,255,255,0.9)", borderRadius: 4, padding: "1px 3px", marginTop: 2, whiteSpace: "nowrap", maxWidth: 60, overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {p.name}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>🗺️ Gartenplan</h2>
+          <button style={{ ...btn("s"), fontSize: 12 }} onClick={() => setShowUrlInput(v => !v)}>
+            {imageUrl ? "🖼️ Bild ändern" : "🖼️ Luftbild laden"}
+          </button>
         </div>
+
+        {/* URL-Eingabe für garten.tif / Supabase URL */}
+        {showUrlInput && (
+          <div style={{ ...crd, marginBottom: 10 }}>
+            <div style={lbl}>Supabase Storage URL für garten.tif (oder PNG/JPEG)</div>
+            <input style={inp} value={inputUrl} onChange={e => setInputUrl(e.target.value)}
+              placeholder="https://xxx.supabase.co/storage/v1/object/public/karte/garten.tif" />
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button style={btn("p")} onClick={saveImageUrl}>Speichern & laden</button>
+              <button style={btn()} onClick={() => setShowUrlInput(false)}>Abbrechen</button>
+            </div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
+              💡 Tipp: Supabase → Storage → Bucket "karte" (Public) → garten.tif hochladen → URL kopieren
+            </div>
+          </div>
+        )}
+
+        {/* Status */}
+        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+          <span style={tag(T.accent, T.accentL)}>📍 {mitPos.length} positioniert</span>
+          {ohnePos.length > 0 && <span style={tag(T.warm, T.warmL)}>⚠️ {ohnePos.length} ohne Position</span>}
+          {ohnePos.length > 0 && <span style={{ fontSize: 12, color: T.muted, alignSelf: "center" }}>→ Auf Karte klicken um nächste Pflanze zu setzen</span>}
+        </div>
+
+        {/* Karte */}
+        {!mapReady ? (
+          <div style={{ height: 400, borderRadius: 14, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.muted }}>
+            Karte wird geladen…
+          </div>
+        ) : (
+          <div ref={mapRef} style={{ height: 420, borderRadius: 14, border: `2px solid ${T.border}`, overflow: "hidden", zIndex: 0 }} />
+        )}
+
+        {/* Pflanze angeklickt */}
+        {selectedPlant && !selectedPlant._setPos && (
+          <div style={{ ...crd, marginTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div><strong>{selectedPlant.foto_emoji} {selectedPlant.name}</strong> · #{selectedPlant.nummer}</div>
+              <button style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer" }} onClick={() => setSelectedPlant(null)}>✕</button>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <button style={btn("p")} onClick={() => { setSelectedId(selectedPlant.id); setView("plant"); }}>Details →</button>
+              <button style={btn("d")} onClick={async () => {
+                if (!confirm("Position löschen?")) return;
+                await sb.from("pflanzen", token).update({ pos_lat: null, pos_lng: null }, `id=eq.${selectedPlant.id}`);
+                await loadPlants();
+                setSelectedPlant(null);
+              }}>📍 Position entfernen</button>
+            </div>
+          </div>
+        )}
+
+        {/* Liste: Pflanzen ohne Position */}
+        {ohnePos.length > 0 && (
+          <div style={{ ...crd, marginTop: 10 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Noch nicht auf der Karte:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {ohnePos.map(p => (
+                <span key={p.id} style={{ ...tag(T.muted, T.bg), fontSize: 13 }}>{p.foto_emoji} {p.name}</span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     );
   };
