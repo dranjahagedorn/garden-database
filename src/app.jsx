@@ -686,27 +686,23 @@ export default function App() {
       const L = window.L;
 
       // Gartenkoordinaten (aus DOP20 garten.tif)
-      const GARTEN_BOUNDS = [[51.65162718, 12.41740532], [51.65371972, 12.42016157]];
-      const CENTER = [51.65267345, 12.41878344];
+      const GARTEN_BOUNDS = [[51.65162778, 12.41740556], [51.65371944, 12.42016389]];
 
       const map = L.map(mapRef.current, {
-        center: CENTER,
-        zoom: 18,
         maxZoom: 21,
-        minZoom: 15,
+        minZoom: 16,
+        zoomSnap: 0.5,
+        attributionControl: false,
       });
 
-      // OSM als Fallback-Hintergrund
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: "© OpenStreetMap",
-        maxZoom: 19,
-        opacity: 0.5,
-      }).addTo(map);
-
-      // DOP20 ImageOverlay wenn URL vorhanden
+      // Kein Tile-Layer – nur das eigene Luftbild
       if (imageUrl) {
-        L.imageOverlay(imageUrl, GARTEN_BOUNDS, { opacity: 0.95, interactive: false }).addTo(map);
-        map.fitBounds(GARTEN_BOUNDS);
+        L.imageOverlay(imageUrl, GARTEN_BOUNDS, { opacity: 1, interactive: false }).addTo(map);
+        map.fitBounds(GARTEN_BOUNDS, { padding: [10, 10] });
+        map.setMaxBounds([[GARTEN_BOUNDS[0][0] - 0.001, GARTEN_BOUNDS[0][1] - 0.001],
+                          [GARTEN_BOUNDS[1][0] + 0.001, GARTEN_BOUNDS[1][1] + 0.001]]);
+      } else {
+        map.setView([51.65267361, 12.41878472], 18);
       }
 
       leafletMap.current = map;
@@ -768,9 +764,14 @@ export default function App() {
 
     const saveImageUrl = () => {
       localStorage.setItem("garten_img_url", inputUrl);
-      setImageUrl(inputUrl);
       setShowUrlInput(false);
-      leafletMap.current = null; // Karte neu aufbauen mit neuem Bild
+      // Alte Karte sauber entfernen, dann neu aufbauen
+      if (leafletMap.current) {
+        leafletMap.current.remove();
+        leafletMap.current = null;
+      }
+      setImageUrl(inputUrl);
+      notify("✅ Luftbild geladen");
     };
 
     const ohnePos = plants.filter(p => !p.pos_lat && !p.pos_lng);
