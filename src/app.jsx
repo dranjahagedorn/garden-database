@@ -152,17 +152,6 @@ function EditPlantModal({ editData, setEditData, savePlant, deletePlant, loading
       </div>
       <div style={lbl}>Notizen</div>
       <textarea style={{ ...inp, height: 80, resize: "vertical" }} value={editData.notizen} onChange={e => setEditData({ ...editData, notizen: e.target.value })} />
-      <div style={lbl}>Foto</div>
-      {editData.foto_url && (
-        <img src={editData.foto_url} alt="Pflanzenfoto" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8, marginBottom: 8, border: `1px solid ${T.border}` }} />
-      )}
-      <label style={{ ...btn(), display: "block", textAlign: "center", cursor: "pointer" }}>
-        📷 {editData.foto_url ? "Foto ändern" : "Foto hochladen"}
-        <input type="file" accept="image/*" style={{ display: "none" }} onChange={e => setEditData({ ...editData, _fotoFile: e.target.files[0], foto_preview: URL.createObjectURL(e.target.files[0]) })} />
-      </label>
-      {editData._fotoFile && (
-        <img src={editData.foto_preview} alt="Vorschau" style={{ width: "100%", maxHeight: 180, objectFit: "cover", borderRadius: 8, marginTop: 8, border: `1px solid ${T.accent}` }} />
-      )}
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <button style={btn("p")} onClick={savePlant} disabled={loading}>{loading ? "…" : "Speichern"}</button>
         <button style={btn()} onClick={() => setEditData(null)}>Abbrechen</button>
@@ -508,15 +497,8 @@ export default function App() {
   const savePlant = async () => {
     setLoading(true);
     try {
-      // Foto hochladen falls vorhanden
-      let foto_url = editData.foto_url || null;
-      if (editData._fotoFile) {
-        const ext = editData._fotoFile.name.split(".").pop();
-        const path = `${session.user.id}/${Date.now()}.${ext}`;
-        foto_url = await sb.storage.upload(token, "pflanzfotos", path, editData._fotoFile);
-      }
-      // _fotoFile und foto_preview nicht in DB speichern
-      const { _fotoFile, foto_preview, ...data } = { ...editData, foto_url };
+      // foto_url wird als Base64 direkt gespeichert (kein Storage nötig)
+      const { _fotoFile, foto_preview, ...data } = editData;
 
       if (data.id) {
         const { id, user_id, created_at, ...rest } = data;
