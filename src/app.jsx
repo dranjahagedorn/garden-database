@@ -7,7 +7,7 @@
 const SUPABASE_URL = "https://rzdyughiamhbbdqfqzil.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6ZHl1Z2hpYW1oYmJkcWZxemlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MTU1MzksImV4cCI6MjA5MzI5MTUzOX0.9MG3bbo2w4krlp5BaCwEdJCr_naCffBVrWVLIlMPPX0";
 const WU_API_KEY = "d32c9fca0e064133ac9fca0e06613363";
-const WU_STATION = "iMulde36";
+const WU_STATION = "IMULDE36";
 // ════════════════════════════════════════════════════════════
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
