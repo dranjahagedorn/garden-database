@@ -6,6 +6,8 @@
 // ⚠️  HIER DEINE SUPABASE-DATEN EINTRAGEN:
 const SUPABASE_URL = "https://rzdyughiamhbbdqfqzil.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6ZHl1Z2hpYW1oYmJkcWZxemlsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3MTU1MzksImV4cCI6MjA5MzI5MTUzOX0.9MG3bbo2w4krlp5BaCwEdJCr_naCffBVrWVLIlMPPX0";
+const WU_API_KEY = "d32c9fca0e064133ac9fca0e06613363";
+const WU_STATION = "iMulde36";
 // ════════════════════════════════════════════════════════════
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -237,10 +239,216 @@ function EditKalModal({ editKal, setEditKal, saveKal, deleteKal, loading, plants
   );
 }
 
+
+// ─── Weather View ───
+function WeatherView() {
+  const [wx, setWx] = useState(null);
+  const [history, setHistory] = useState([]); // letzte 5 Tage
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = async () => {
+    setLoading(true); setError("");
+    try {
+      // Aktuell
+      const res = await fetch(
+        `https://api.weather.com/v2/pws/observations/current?stationId=${WU_STATION}&format=json&units=m&apiKey=${WU_API_KEY}&numericPrecision=decimal`
+      );
+      if (!res.ok) throw new Error("Abruf fehlgeschlagen");
+      const data = await res.json();
+      setWx(data.observations[0]);
+
+      // History: letzte 5 Tage als Tagessummen
+      const hist = [];
+      for (let i = 1; i <= 5; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = d.toISOString().slice(0, 10).replace(/-/g, "");
+        try {
+          const r = await fetch(
+            `https://api.weather.com/v2/pws/history/daily?stationId=${WU_STATION}&format=json&units=m&apiKey=${WU_API_KEY}&date=${dateStr}`
+          );
+          const hd = await r.json();
+          if (hd.observations?.[0]) {
+            hist.push({ date: d, precip: hd.observations[0].metric.precipTotal || 0, tempHigh: hd.observations[0].metric.tempHigh, tempAvg: hd.observations[0].metric.tempAvg });
+          }
+        } catch (_) {}
+      }
+      setHistory(hist);
+    } catch (e) { setError(e.message); }
+    setLoading(false);
+  };
+
+  useEffect(() => { load(); const iv = setInterval(load, 10 * 60 * 1000); return () => clearInterval(iv); }, []);
+
+  const windDir = (deg) => ["N","NO","O","SO","S","SW","W","NW"][Math.round(deg / 45) % 8];
+
+  // ─── Gießempfehlung ───
+  const giessEmpfehlung = () => {
+    if (!wx || history.length < 2) return null;
+    const m = wx.metric;
+    const now = new Date();
+    const hour = now.getHours();
+
+    const regenLetzt3 = history.slice(0, 3).reduce((s, d) => s + d.precip, 0);
+    const regenLetzt5 = history.reduce((s, d) => s + d.precip, 0);
+    const heutePrecip = m.precipTotal || 0;
+    const gesamtRegen = regenLetzt3 + heutePrecip;
+    const temp = m.temp;
+    const solar = wx.solarRadiation || 0;
+
+    // Verdunstungsschätzung: grob 2–5mm/Tag je nach Temp + Sonne
+    const verdunstungProTag = Math.max(1, (temp * 0.15 + solar * 0.003));
+    const wasserDefizit = verdunstungProTag * 3 - gesamtRegen;
+
+    let empfehlung = { text: "", detail: "", color: "", emoji: "" };
+
+    if (heutePrecip > 8) {
+      empfehlung = { emoji: "✅", color: "#16a34a", text: "Heute ausreichend geregnet", detail: `${heutePrecip.toFixed(1)} mm heute – kein Gießen nötig` };
+    } else if (gesamtRegen > 15) {
+      empfehlung = { emoji: "✅", color: "#16a34a", text: "Letzte Tage gut bewässert", detail: `${gesamtRegen.toFixed(1)} mm in den letzten 3 Tagen` };
+    } else if (wasserDefizit > 8) {
+      // Wann ist der beste Zeitpunkt?
+      let zeitTipp = "";
+      if (hour < 10) zeitTipp = "Jetzt ist ein guter Zeitpunkt – kühle Morgenstunden";
+      else if (hour < 17) zeitTipp = "Besser warten bis nach 18 Uhr – weniger Verdunstung";
+      else zeitTipp = "Guter Zeitpunkt – kühler Abend, wenig Verdunstung";
+      empfehlung = { emoji: "🚿", color: "#c4773a", text: "Gießen empfohlen", detail: `Nur ${gesamtRegen.toFixed(1)} mm in 3 Tagen, geschätztes Defizit ${wasserDefizit.toFixed(0)} mm. ${zeitTipp}.` };
+    } else if (wasserDefizit > 3) {
+      empfehlung = { emoji: "⚠️", color: "#ca8a04", text: "Bald gießen", detail: `${gesamtRegen.toFixed(1)} mm in 3 Tagen – bei anhaltender Trockenheit morgen gießen` };
+    } else {
+      empfehlung = { emoji: "🌱", color: "#5a7a3a", text: "Wasserhaushalt ausgeglichen", detail: `${gesamtRegen.toFixed(1)} mm Regen in den letzten 3 Tagen` };
+    }
+    return empfehlung;
+  };
+
+  const T2 = { bg: "#faf9f7", card: "#ffffff", border: "#e8e3db", muted: "#9c8f80", text: "#2d2416", accent: "#5a7a3a", accentL: "#eef3e8", warm: "#c4773a", warmL: "#fdf4ec" };
+  const lbl2 = { fontSize: 11, fontWeight: 700, color: T2.muted, textTransform: "uppercase", letterSpacing: .5, marginBottom: 2 };
+  const crd2 = { background: T2.card, border: `1px solid ${T2.border}`, borderRadius: 14, padding: "16px", marginBottom: 10, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" };
+
+  if (loading) return <div style={{ textAlign: "center", padding: 48, color: T2.muted }}>🌤️ Wetterdaten laden…</div>;
+  if (error) return (
+    <div style={{ ...crd2, color: "#dc2626" }}>❌ {error}
+      <button style={{ marginLeft: 12, padding: "4px 12px", borderRadius: 8, border: "none", background: T2.accentL, color: T2.accent, cursor: "pointer", fontWeight: 600 }} onClick={load}>Erneut versuchen</button>
+    </div>
+  );
+  if (!wx) return null;
+
+  const m = wx.metric;
+  const obsTime = new Date(wx.obsTimeLocal).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const obsDate = new Date(wx.obsTimeLocal).toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+  const tempIcon = m.temp > 28 ? "☀️" : m.temp > 18 ? "🌤️" : m.temp > 8 ? "⛅" : m.temp > 0 ? "🌥️" : "❄️";
+  const empf = giessEmpfehlung();
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>🌤️ Wetter</h2>
+        <div style={{ fontSize: 12, color: T2.muted, display: "flex", alignItems: "center", gap: 8 }}>
+          <span>{WU_STATION} · {obsDate}, {obsTime}</span>
+          <button style={{ padding: "3px 10px", borderRadius: 6, border: "none", background: T2.accentL, color: T2.accent, cursor: "pointer", fontWeight: 600, fontSize: 11 }} onClick={load}>↻</button>
+        </div>
+      </div>
+
+      {/* Gießempfehlung – prominent oben */}
+      {empf && (
+        <div style={{ ...crd2, background: `${empf.color}12`, borderColor: `${empf.color}40`, borderWidth: 2 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ fontSize: 32 }}>{empf.emoji}</div>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: empf.color }}>{empf.text}</div>
+              <div style={{ fontSize: 13, color: T2.text, marginTop: 3, lineHeight: 1.4 }}>{empf.detail}</div>
+            </div>
+          </div>
+          {/* Mini-Regenhistorie */}
+          {history.length > 0 && (
+            <div style={{ display: "flex", gap: 6, marginTop: 12, alignItems: "flex-end" }}>
+              {[...history].reverse().map((d, i) => {
+                const maxPrecip = Math.max(...history.map(h => h.precip), 1);
+                const h = Math.max(4, (d.precip / maxPrecip) * 40);
+                return (
+                  <div key={i} style={{ flex: 1, textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: T2.muted, marginBottom: 2 }}>{d.precip.toFixed(1)}</div>
+                    <div style={{ height: h, background: d.precip > 5 ? "#3b82f6" : d.precip > 0 ? "#93c5fd" : T2.border, borderRadius: 3 }} />
+                    <div style={{ fontSize: 10, color: T2.muted, marginTop: 2 }}>
+                      {d.date.toLocaleDateString("de-DE", { weekday: "short" })}
+                    </div>
+                  </div>
+                );
+              })}
+              <div style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ fontSize: 10, color: T2.muted, marginBottom: 2 }}>{(m.precipTotal || 0).toFixed(1)}</div>
+                <div style={{ height: Math.max(4, ((m.precipTotal||0) / Math.max(...history.map(h => h.precip), 1)) * 40), background: (m.precipTotal||0) > 5 ? "#3b82f6" : (m.precipTotal||0) > 0 ? "#93c5fd" : T2.border, borderRadius: 3 }} />
+                <div style={{ fontSize: 10, color: T2.accent, fontWeight: 700, marginTop: 2 }}>Heute</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Haupttemperatur */}
+      <div style={{ ...crd2, background: `linear-gradient(135deg, ${T2.accentL} 0%, #fff 100%)` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ fontSize: 48 }}>{tempIcon}</div>
+          <div>
+            <div style={{ fontSize: 44, fontWeight: 800, color: T2.text, lineHeight: 1 }}>{m.temp?.toFixed(1)}°</div>
+            <div style={{ fontSize: 13, color: T2.muted }}>Gefühlt {(m.heatIndex ?? m.windChill ?? m.temp)?.toFixed(1)}°</div>
+          </div>
+          <div style={{ marginLeft: "auto", textAlign: "right" }}>
+            <div style={{ fontSize: 13, color: T2.muted }}>Luftfeuchte</div>
+            <div style={{ fontSize: 26, fontWeight: 700 }}>{wx.humidity}%</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Details Grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div style={crd2}>
+          <div style={lbl2}>💨 Wind</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{m.windSpeed?.toFixed(1)} km/h</div>
+          <div style={{ fontSize: 12, color: T2.muted }}>{windDir(wx.winddir)} · Böen {m.windGust?.toFixed(1)} km/h</div>
+        </div>
+        <div style={crd2}>
+          <div style={lbl2}>🌧️ Niederschlag</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{m.precipRate?.toFixed(1)} mm/h</div>
+          <div style={{ fontSize: 12, color: T2.muted }}>Heute: {(m.precipTotal||0).toFixed(1)} mm</div>
+        </div>
+        <div style={crd2}>
+          <div style={lbl2}>🌡️ Taupunkt</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{m.dewpt?.toFixed(1)}°C</div>
+          <div style={{ fontSize: 12, color: T2.muted }}>{m.pressure?.toFixed(0)} hPa</div>
+        </div>
+        <div style={crd2}>
+          <div style={lbl2}>☀️ Einstrahlung</div>
+          <div style={{ fontSize: 18, fontWeight: 700 }}>{wx.solarRadiation?.toFixed(0)} W/m²</div>
+          <div style={{ fontSize: 12, color: T2.muted }}>UV {wx.uv?.toFixed(0)}</div>
+        </div>
+      </div>
+
+      {/* Weitere Gartentipps */}
+      {(() => {
+        const tips = [];
+        if (m.windSpeed > 30) tips.push("💨 Zu windig zum Sprühen oder Düngen");
+        if (wx.uv > 6) tips.push("☀️ UV hoch – empfindliche Pflanzen schützen");
+        if (m.temp < 4) tips.push("🥶 Frostgefahr – empfindliche Pflanzen abdecken");
+        if (m.temp > 30) tips.push("🌡️ Hitzestress möglich – Mulchen hilft");
+        if (tips.length === 0) return null;
+        return (
+          <div style={{ ...crd2, background: T2.warmL, borderColor: T2.warm }}>
+            <div style={lbl2}>🌱 Weitere Tipps</div>
+            {tips.map((t, i) => <div key={i} style={{ fontSize: 13, marginTop: 4 }}>{t}</div>)}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+
 // ════════════════════════════════════════════════════════════
 export default function App() {
   const [session, setSession] = useState(null);
-  const [view, setView] = useState("db"); // db | plant | editPlant | logbook | map | calendar
+  const [view, setView] = useState("weather"); // weather | db | plant | logbook | map | calendar
   const [plants, setPlants] = useState([]);
   const [logEntries, setLogEntries] = useState([]);
   const [kalender, setKalender] = useState([]);
@@ -449,14 +657,8 @@ export default function App() {
             <div><div style={lbl}>Düngebedarf</div><div style={{ fontSize: 14 }}>{p.duenge_bedarf || "–"}</div></div>
             <div><div style={lbl}>Schnitt</div><div style={{ fontSize: 14 }}>{p.schnitt || "–"}</div></div>
           </div>
-          {p.foto_url && <><div style={lbl}>Foto</div><img src={p.foto_url} alt="Pflanzenfoto" style={{ width: "100%", maxHeight: 220, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} /></>}
+          {p.foto_url && <><div style={lbl}>Foto</div><img src={p.foto_url} alt="Pflanzenfoto" style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} /></>}
           {p.notizen && <><div style={lbl}>Notizen</div><div style={{ fontSize: 13, background: T.warmL, padding: "10px 12px", borderRadius: 8, lineHeight: 1.5 }}>{p.notizen}</div></>}
-          {p.foto_url && (
-            <>
-              <div style={lbl}>Foto</div>
-              <img src={p.foto_url} alt={p.name} style={{ width: "100%", maxHeight: 260, objectFit: "cover", borderRadius: 10, border: `1px solid ${T.border}` }} />
-            </>
-          )}
 
           {/* Pflegekalender */}
           <div style={lbl}>Pflegekalender</div>
@@ -484,19 +686,9 @@ export default function App() {
 
           {/* QR Code */}
           <div style={lbl}>QR-Code</div>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginTop: 4 }}>
-            <img src={qrUrl(p)} alt="QR" style={{ width: 120, height: 120, borderRadius: 8, border: `1px solid ${T.border}` }} />
-            <div>
-              <div style={{ fontSize: 12, color: T.muted, marginBottom: 8, lineHeight: 1.5 }}>
-                Zum Pflanzenschild drucken →<br />direkter Link zu Pflanze <strong>#{p.nummer}</strong>
-              </div>
-              <button style={btn("w")} onClick={() => downloadQR(p)}>
-                ⬇️ PNG herunterladen
-              </button>
-              <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>
-                Dateiname: QR_{p.nummer}_{p.name.replace(/\s+/g, "_")}.png
-              </div>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 4 }}>
+            <img src={qrUrl(p)} alt="QR" style={{ width: 100, height: 100, borderRadius: 8, border: `1px solid ${T.border}` }} />
+            <button style={btn("w")} onClick={() => downloadQR(p)}>⬇️ QR herunterladen</button>
           </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
@@ -708,7 +900,7 @@ export default function App() {
       leafletMap.current = map;
     }, [mapReady, imageUrl]);
 
-    // Marker aktualisieren wenn Pflanzen geladen
+    // Marker aktualisieren – OHNE Zoom zurückzusetzen
     useEffect(() => {
       if (!leafletMap.current || !mapReady) return;
       const L = window.L;
@@ -718,31 +910,34 @@ export default function App() {
       Object.values(markersRef.current).forEach(m => m.remove());
       markersRef.current = {};
 
-      // Neue Marker setzen (nur Pflanzen mit GPS-Koordinaten)
+      // Neue Marker – größer für bessere Bedienbarkeit
       plants.forEach(p => {
         if (!p.pos_lat || !p.pos_lng) return;
         const kat = KAT.find(k => k.id === p.kategorie);
         const color = kat?.color || "#5a7a3a";
         const icon = L.divIcon({
           className: "",
-          html: `<div style="width:34px;height:34px;border-radius:50%;background:${color};border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,0.3);cursor:pointer">${p.foto_emoji}</div>`,
-          iconSize: [34, 34],
-          iconAnchor: [17, 17],
+          html: `<div style="width:28px;height:28px;border-radius:50%;background:${color};border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer">${p.foto_emoji}</div>`,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
         });
         const marker = L.marker([p.pos_lat, p.pos_lng], { icon, draggable: true });
         marker.on("click", () => setSelectedPlant(p));
+        // dragend: Position speichern ohne Zoom-Reset
         marker.on("dragend", async (e) => {
           const { lat, lng } = e.target.getLatLng();
           await sb.from("pflanzen", token).update({ pos_lat: lat, pos_lng: lng }, `id=eq.${p.id}`);
+          // loadPlants() würde Marker neu setzen → kein await nötig, nur stille DB-Aktualisierung
           notify("📍 Position gespeichert");
         });
         marker.addTo(map);
         markersRef.current[p.id] = marker;
       });
 
-      // Klick auf Karte → nächste Pflanze ohne Position setzen
+      // Klick auf leere Kartenfläche → Pflanze ohne Position setzen
       map.off("click");
       map.on("click", (e) => {
+        // Nur wenn kein Marker geklickt wurde
         const ohnePos = plants.find(p => !p.pos_lat && !p.pos_lng);
         if (ohnePos) {
           setSelectedPlant({ ...ohnePos, _setPos: e.latlng });
@@ -750,22 +945,48 @@ export default function App() {
       });
     }, [plants, mapReady]);
 
-    // Position setzen wenn _setPos vorhanden
+    // Position setzen wenn _setPos vorhanden – ohne loadPlants (kein Zoom-Reset!)
     useEffect(() => {
       if (!selectedPlant?._setPos) return;
       const { lat, lng } = selectedPlant._setPos;
+      const p = selectedPlant;
       (async () => {
-        await sb.from("pflanzen", token).update({ pos_lat: lat, pos_lng: lng }, `id=eq.${selectedPlant.id}`);
-        await loadPlants();
-        notify(`📍 ${selectedPlant.name} positioniert`);
+        await sb.from("pflanzen", token).update({ pos_lat: lat, pos_lng: lng }, `id=eq.${p.id}`);
+        // Marker direkt auf Karte setzen ohne loadPlants
+        const L = window.L;
+        const map = leafletMap.current;
+        if (map) {
+          const kat = KAT.find(k => k.id === p.kategorie);
+          const color = kat?.color || "#5a7a3a";
+          const icon = L.divIcon({
+            className: "",
+            html: `<div style="width:28px;height:28px;border-radius:50%;background:${color};border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer">${p.foto_emoji}</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          });
+          const marker = L.marker([lat, lng], { icon, draggable: true });
+          marker.on("click", () => setSelectedPlant({ ...p, pos_lat: lat, pos_lng: lng }));
+          marker.on("dragend", async (e2) => {
+            const pos = e2.target.getLatLng();
+            await sb.from("pflanzen", token).update({ pos_lat: pos.lat, pos_lng: pos.lng }, `id=eq.${p.id}`);
+            notify("📍 Position gespeichert");
+          });
+          marker.addTo(map);
+          markersRef.current[p.id] = marker;
+        }
+        // Plants im Hintergrund neu laden
+        loadPlants();
+        notify(`📍 ${p.name} positioniert`);
         setSelectedPlant(null);
+        // Direkt zum Steckbrief navigieren
+        setSelectedId(p.id);
+        setView("plant");
       })();
     }, [selectedPlant]);
 
     const saveImageUrl = () => {
       localStorage.setItem("garten_img_url", inputUrl);
       setShowUrlInput(false);
-      // Alte Karte sauber entfernen, dann neu aufbauen
       if (leafletMap.current) {
         leafletMap.current.remove();
         leafletMap.current = null;
@@ -775,7 +996,7 @@ export default function App() {
     };
 
     const ohnePos = plants.filter(p => !p.pos_lat && !p.pos_lng);
-    const mitPos = plants.filter(p => p.pos_lat && p.pos_lng);
+    const mitPos = plants.filter(p => p.pos_lat && p.pos_lng).sort((a, b) => a.nummer - b.nummer);
 
     return (
       <div>
@@ -786,39 +1007,65 @@ export default function App() {
           </button>
         </div>
 
-        {/* URL-Eingabe für garten.tif / Supabase URL */}
+        {/* URL-Eingabe */}
         {showUrlInput && (
           <div style={{ ...crd, marginBottom: 10 }}>
-            <div style={lbl}>Supabase Storage URL für garten.tif (oder PNG/JPEG)</div>
+            <div style={lbl}>Supabase Storage URL (PNG/JPEG)</div>
             <input style={inp} value={inputUrl} onChange={e => setInputUrl(e.target.value)}
-              placeholder="https://xxx.supabase.co/storage/v1/object/public/karte/garten.tif" />
+              placeholder="https://xxx.supabase.co/storage/v1/object/public/karte/garten.png" />
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button style={btn("p")} onClick={saveImageUrl}>Speichern & laden</button>
               <button style={btn()} onClick={() => setShowUrlInput(false)}>Abbrechen</button>
             </div>
-            <div style={{ fontSize: 12, color: T.muted, marginTop: 8 }}>
-              💡 Tipp: Supabase → Storage → Bucket "karte" (Public) → garten.tif hochladen → URL kopieren
-            </div>
           </div>
         )}
 
-        {/* Status */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-          <span style={tag(T.accent, T.accentL)}>📍 {mitPos.length} positioniert</span>
-          {ohnePos.length > 0 && <span style={tag(T.warm, T.warmL)}>⚠️ {ohnePos.length} ohne Position</span>}
-          {ohnePos.length > 0 && <span style={{ fontSize: 12, color: T.muted, alignSelf: "center" }}>→ Auf Karte klicken um nächste Pflanze zu setzen</span>}
+        {/* Hinweis wenn keine Position zu setzen */}
+        {ohnePos.length > 0 && (
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 8 }}>
+            → Auf Karte klicken um <strong>{ohnePos[0].foto_emoji} {ohnePos[0].name}</strong> zu positionieren
+          </div>
+        )}
+
+        {/* Karte + Seitenleiste */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 10, alignItems: "start" }}>
+          {/* Karte */}
+          {!mapReady ? (
+            <div style={{ height: 480, borderRadius: 14, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.muted }}>
+              Karte wird geladen…
+            </div>
+          ) : (
+            <div ref={mapRef} style={{ height: 480, borderRadius: 14, border: `2px solid ${T.border}`, overflow: "hidden", zIndex: 0 }} />
+          )}
+
+          {/* Seitenleiste – Pflanzenliste nach Nummer */}
+          <div style={{ ...crd, marginBottom: 0, maxHeight: 480, overflowY: "auto" }}>
+            <div style={{ fontWeight: 700, fontSize: 12, color: T.muted, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>Pflanzen</div>
+            {mitPos.map(p => {
+              const kat = KAT.find(k => k.id === p.kategorie);
+              return (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 0", borderBottom: `1px solid ${T.border}`, cursor: "pointer" }}
+                  onClick={() => { setSelectedId(p.id); setView("plant"); }}>
+                  <span style={{ fontSize: 16 }}>{p.foto_emoji}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                    <div style={{ fontSize: 10, color: T.muted }}>#{p.nummer}</div>
+                  </div>
+                </div>
+              );
+            })}
+            {ohnePos.length > 0 && (
+              <>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 8, marginBottom: 4, fontWeight: 700 }}>Ohne Position:</div>
+                {ohnePos.map(p => (
+                  <div key={p.id} style={{ fontSize: 12, color: T.muted, padding: "3px 0" }}>{p.foto_emoji} {p.name}</div>
+                ))}
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Karte */}
-        {!mapReady ? (
-          <div style={{ height: 400, borderRadius: 14, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", color: T.muted }}>
-            Karte wird geladen…
-          </div>
-        ) : (
-          <div ref={mapRef} style={{ height: 420, borderRadius: 14, border: `2px solid ${T.border}`, overflow: "hidden", zIndex: 0 }} />
-        )}
-
-        {/* Pflanze angeklickt */}
+        {/* Pflanze angeklickt → Popup unten */}
         {selectedPlant && !selectedPlant._setPos && (
           <div style={{ ...crd, marginTop: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -829,22 +1076,14 @@ export default function App() {
               <button style={btn("p")} onClick={() => { setSelectedId(selectedPlant.id); setView("plant"); }}>Details →</button>
               <button style={btn("d")} onClick={async () => {
                 if (!confirm("Position löschen?")) return;
+                if (markersRef.current[selectedPlant.id]) {
+                  markersRef.current[selectedPlant.id].remove();
+                  delete markersRef.current[selectedPlant.id];
+                }
                 await sb.from("pflanzen", token).update({ pos_lat: null, pos_lng: null }, `id=eq.${selectedPlant.id}`);
-                await loadPlants();
+                loadPlants();
                 setSelectedPlant(null);
               }}>📍 Position entfernen</button>
-            </div>
-          </div>
-        )}
-
-        {/* Liste: Pflanzen ohne Position */}
-        {ohnePos.length > 0 && (
-          <div style={{ ...crd, marginTop: 10 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Noch nicht auf der Karte:</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {ohnePos.map(p => (
-                <span key={p.id} style={{ ...tag(T.muted, T.bg), fontSize: 13 }}>{p.foto_emoji} {p.name}</span>
-              ))}
             </div>
           </div>
         )}
@@ -933,6 +1172,7 @@ export default function App() {
 
   // ─── Nav ───
   const navItems = [
+    { id: "weather", label: "🌤️ Wetter" },
     { id: "db", label: "🌱 Pflanzen" },
     { id: "calendar", label: "📅 Kalender" },
     { id: "logbook", label: "🗒️ Logbuch" },
@@ -968,6 +1208,7 @@ export default function App() {
         {view === "logbook" && <LogView />}
         {view === "map" && <MapView />}
         {view === "calendar" && <CalendarView />}
+        {view === "weather" && <WeatherView />}
       </div>
 
       {/* Modals */}
